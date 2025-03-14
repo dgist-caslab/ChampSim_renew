@@ -248,6 +248,8 @@ class NormalizedConfiguration:
             (extract_element(name, core, config_file) for core, name in itertools.product(self.cores, pinned_cache_names))
         )
 
+        tma_enabled = config_file.get('TMA', False)
+
         # Read LLC from the configuration file
         if 'LLC' in config_file:
             self.caches.update(LLC={'name': 'LLC', **config_file['LLC']})
@@ -276,16 +278,32 @@ class NormalizedConfiguration:
         self.caches = {k:v for k,v in self.caches.items() if k != 'DRAM'}
 
         self.pmem = config_file.get('physical_memory', {})
-        
+        self.cmem = {}
+        # if TMA is true
+        if tma_enabled:
+            self.cmem = config_file.get('cxl_memory', {}) # [PHW] add support for CXL memory
+            print(f"NormalizedConfiguration: CXL memory is enabled")
+        else:
+            #delete CXL memory if TMA is not enabled
+            del self.cmem
+        # print containment of self
+        print(f"NormalizedConfiguration: self contains {list(self.__dict__.keys())}")
         #this allows frequency to be specified instead of data rate or vice-versa for DRAM
         if('frequency' in self.pmem.keys()):
             self.pmem['data_rate'] = self.pmem['frequency']
             self.pmem['frequency'] = self.pmem['frequency']/2
+            if(tma_enabled): # [PHW] add support for CXL memory
+                self.cmem['data_rate'] = self.cmem['frequency']
+                self.cmem['frequency'] = self.cmem['frequency']/2
         elif('data_rate' in self.pmem.keys()):
             self.pmem['frequency'] = self.pmem['data_rate']/2
+            if(tma_enabled): # [PHW] add support for CXL memory
+                self.cmem['frequency'] = self.cmem['data_rate']/2
 
         if verbose:
             print('P: pmem', list(self.pmem.keys()))
+            if tma_enabled:
+                print('P: cmem', list(self.cmem.keys()))
 
         self.vmem = config_file.get('virtual_memory', {})
 
@@ -293,7 +311,7 @@ class NormalizedConfiguration:
             print('P: vmem', list(self.vmem.keys()))
 
         self.root = util.subdict(config_file,
-            ('block_size', 'page_size', 'heartbeat_frequency')
+            ('block_size', 'page_size', 'heartbeat_frequency', 'TMA') # [PHW] add TMA for Tiered Memory Architecture
         )
 
     def merge(self, rhs):
@@ -302,6 +320,8 @@ class NormalizedConfiguration:
         self.caches = util.chain(self.caches, rhs.caches)
         self.ptws = util.chain(self.ptws, rhs.ptws)
         self.pmem = util.chain(self.pmem, rhs.pmem)
+        if self.root.get('TMA'):
+            self.cmem = util.chain(self.cmem, rhs.cmem)
         self.vmem = util.chain(self.vmem, rhs.vmem)
         self.root = util.chain(self.root, rhs.root)
 
@@ -444,7 +464,7 @@ class NormalizedConfiguration:
         }
 
         config_extern = {
-            **util.subdict(root_config, ('block_size', 'page_size', 'heartbeat_frequency')),
+            **util.subdict(root_config, ('block_size', 'page_size', 'heartbeat_frequency', 'TMA')), # [PHW] add TMA for Tiered Memory Architecture
             'num_cores': len(cores)
         }
 
